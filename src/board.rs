@@ -12,7 +12,7 @@ pub enum Cell {
 
 #[derive(Clone, Debug)]
 pub struct Board {
-    pub state: [[Cell; Board::SIZE]; Board::SIZE],
+    pub grid: [[Cell; Board::SIZE]; Board::SIZE],
 }
 
 impl Board {
@@ -22,14 +22,14 @@ impl Board {
 impl Default for Board {
     fn default() -> Self {
 
-        let mut state = [[Cell::Empty; Board::SIZE]; Board::SIZE];
-        state[3][3] = Cell::Taken(Player::White);
-        state[4][4] = Cell::Taken(Player::White);
-        state[3][4] = Cell::Taken(Player::Black);
-        state[4][3] = Cell::Taken(Player::Black);
+        let mut grid = [[Cell::Empty; Board::SIZE]; Board::SIZE];
+        grid[3][3] = Cell::Taken(Player::White);
+        grid[4][4] = Cell::Taken(Player::White);
+        grid[3][4] = Cell::Taken(Player::Black);
+        grid[4][3] = Cell::Taken(Player::Black);
 
         Board {
-            state,
+            grid,
         }
     }
 }

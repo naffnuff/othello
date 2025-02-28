@@ -8,6 +8,7 @@ use crate::board::Player;
 use crate::board::Cell;
 use crate::board::Board;
 use crate::common::MoveRequest;
+use crate::referee::Referee;
 
 pub struct Game {
     board: Board,
@@ -18,6 +19,7 @@ pub struct Game {
     ai_thread: Option<thread::JoinHandle<()>>,
     move_request_sender: Option<mpsc::Sender<MoveRequest>>,
     move_result_receiver: mpsc::Receiver<(usize, usize)>,
+    referee: Referee,
 }
 
 impl Default for Game {
@@ -41,6 +43,7 @@ impl Default for Game {
             ai_thread: Some(ai_thread),
             move_request_sender: Some(move_request_sender),
             move_result_receiver: move_result_receiver,
+            referee: Referee::default(),
         }
     }
 }
@@ -89,7 +92,7 @@ impl eframe::App for Game {
                     let stroke = egui::Stroke { width: line_width, color: egui::Color32::BLACK };
                     ui.painter().rect_stroke(square_rect, 0.0, stroke, egui::StrokeKind::Inside);
 
-                    if let Cell::Taken(cell_state) = self.board.state[row][col] {
+                    if let Cell::Taken(cell_state) = self.board.grid[row][col] {
                         ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93, to_color(cell_state));
                     }
                 }
@@ -103,7 +106,7 @@ impl eframe::App for Game {
                         if let Some((row, col)) = self.move_result_receiver.try_recv().ok() {
                             println!("UI: Received AI move: {row}, {col}");
                             // Place the current player's piece
-                            self.board.state[row][col] = Cell::Taken(self.current_player);
+                            self.board.grid[row][col] = Cell::Taken(self.current_player);
                             // Switch players
                             self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
                             self.awaiting_ai_move = false;
@@ -121,25 +124,32 @@ impl eframe::App for Game {
                     // Mouse handling
                     let mut row = Board::SIZE;
                     let mut col = Board::SIZE;
+
+                    let mut is_valid_move = false;
                     
                     if let Some(mouse_pos) = ui.input(|i| i.pointer.latest_pos()) {
                             
                         row = ((mouse_pos.y - rect.top()) / square_size) as usize;
                         col = ((mouse_pos.x - rect.left()) / square_size) as usize;
                     
-                        if row < Board::SIZE && col < Board::SIZE && self.board.state[row][col] == Cell::Empty {
+                        if row < Board::SIZE && col < Board::SIZE {
+
+                            is_valid_move = self.referee.validate_move(&self.board, self.current_player, (row, col));
+
+                            if is_valid_move {
                             
-                            let stroke = egui::Stroke { width: line_width, color: to_color(self.current_player) };
-                            ui.painter().circle_stroke(get_square_rect(row, col).center(), square_size / 2.0 * 0.9, stroke);
+                                let stroke = egui::Stroke { width: line_width, color: to_color(self.current_player) };
+                                ui.painter().circle_stroke(get_square_rect(row, col).center(), square_size / 2.0 * 0.9, stroke);
+                            }
                         }
                     }
         
                     // Handle mouse clicks to make moves
                     if ui.input(|i| i.pointer.any_down()) {
                     
-                        if row < Board::SIZE && col < Board::SIZE && self.board.state[row][col] == Cell::Empty {
+                        if row < Board::SIZE && col < Board::SIZE && is_valid_move {
                             // Place the current player's piece
-                            self.board.state[row][col] = Cell::Taken(self.current_player);
+                            self.board.grid[row][col] = Cell::Taken(self.current_player);
                             // Switch players
                             self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
                         }
@@ -153,11 +163,11 @@ impl eframe::App for Game {
 
         egui::SidePanel::right("right_panel").show(ctx, move |ui| {
 
-            let message = match (self.current_player, self.awaiting_ai_move) {
-                (Player::Black, true) => "Black is thinking...",
-                (Player::White, true) => "White is thinking...",
-                (Player::Black, false) => "Black's turn",
-                (Player::White, false) => "White's turn"
+            let message = match (self.current_player, self.awaiting_ai_move, self.black_ai_enabled, self.white_ai_enabled) {
+                (Player::Black, true, true, _) => "Black is thinking...",
+                (Player::White, true, _, true) => "White is thinking...",
+                (Player::Black, _, _, _) => "Black's turn",
+                (Player::White, _, _, _) => "White's turn"
             };
             ui.label(message);  // Display the message
             

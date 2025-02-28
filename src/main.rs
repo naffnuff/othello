@@ -2,6 +2,7 @@ mod board;
 mod game;
 mod agent;
 mod common;
+mod referee;
 
 use game::Game;
 
