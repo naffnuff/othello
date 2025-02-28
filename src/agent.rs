@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 use rand::Rng;
 
+use crate::common::CellList;
 use crate::common::MoveRequest;
 use crate::board::Player;
 use crate::board::Cell;
@@ -8,24 +9,6 @@ use crate::board::Board;
 use crate::referee::Referee;
 
 const SIZE: usize = 8;
-
-// a cache for re-use to avoid unnecesary memory allocations
-pub struct CellList {
-    pub list: [(usize, usize); 64],
-    pub count: usize,
-}
-
-impl CellList {
-
-    pub fn push_back(&mut self, cell: (usize, usize)) {
-        self.list[self.count] = cell;
-        self.count += 1;
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &(usize, usize)> {
-        self.list[..self.count].iter()
-    }
-}
 
 pub struct Agent {
     rng: rand::prelude::ThreadRng,
@@ -43,7 +26,7 @@ impl Agent {
             rng: rand::rng(),
             move_request_receiver: move_request_receiver,
             move_result_sender: move_result_sender,
-            valid_moves: CellList { list: [(Board::SIZE, Board::SIZE); 64], count: 0 },
+            valid_moves: CellList::default(),
             referee: Referee::default(),
         }
     }
@@ -54,10 +37,6 @@ impl Agent {
             println!("AI thread: Received new request...");
             std::thread::sleep(std::time::Duration::from_secs(1));
             println!("AI thread: 1 sec passed...");
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            println!("AI thread: 2 sec passed...");
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            println!("AI thread: 3 sec passed...");
             let next_move = self.make_next_move(&move_request.board, move_request.current_player);
             println!("AI thread: Done processing request");
             self.move_result_sender.send(next_move).unwrap();

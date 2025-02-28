@@ -3,11 +3,12 @@ use std::sync::mpsc;
 
 use eframe::egui;
 
-use crate::agent::Agent;
+use crate::common::CellList;
+use crate::common::MoveRequest;
 use crate::board::Player;
 use crate::board::Cell;
 use crate::board::Board;
-use crate::common::MoveRequest;
+use crate::agent::Agent;
 use crate::referee::Referee;
 
 pub struct Game {
@@ -15,11 +16,13 @@ pub struct Game {
     current_player: Player,
     black_ai_enabled: bool,
     white_ai_enabled: bool,
+    help_enabled: bool,
     awaiting_ai_move: bool,
     ai_thread: Option<thread::JoinHandle<()>>,
     move_request_sender: Option<mpsc::Sender<MoveRequest>>,
     move_result_receiver: mpsc::Receiver<(usize, usize)>,
     referee: Referee,
+    flip_cells: CellList,
 }
 
 impl Default for Game {
@@ -39,11 +42,13 @@ impl Default for Game {
             current_player: Player::Black,
             black_ai_enabled: false,
             white_ai_enabled: false,
+            help_enabled: false,
             awaiting_ai_move: false,
             ai_thread: Some(ai_thread),
             move_request_sender: Some(move_request_sender),
             move_result_receiver: move_result_receiver,
             referee: Referee::default(),
+            flip_cells: CellList::default(),
         }
     }
 }
@@ -107,8 +112,18 @@ impl eframe::App for Game {
                             println!("UI: Received AI move: {row}, {col}");
                             // Place the current player's piece
                             self.board.grid[row][col] = Cell::Taken(self.current_player);
-                            // Switch players
-                            self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
+                            
+                            // Validate and collect flip cells for ai move
+                            if self.referee.find_flip_cells_for_move(&self.board, self.current_player, (row, col), &mut self.flip_cells) {
+                                
+                                // flip cells
+                                for (flip_row, flip_col) in self.flip_cells.iter() {
+                                    
+                                    self.board.grid[flip_row][flip_col] = Cell::Taken(self.current_player);
+                                }
+                                // Switch players
+                                self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
+                            }
                             self.awaiting_ai_move = false;
                         }
                     } else {
@@ -134,12 +149,21 @@ impl eframe::App for Game {
                     
                         if row < Board::SIZE && col < Board::SIZE {
 
-                            is_valid_move = self.referee.validate_move(&self.board, self.current_player, (row, col));
+                            is_valid_move = self.referee.find_flip_cells_for_move(&self.board, self.current_player, (row, col), &mut self.flip_cells);
 
                             if is_valid_move {
+
+                                if self.help_enabled {
                             
-                                let stroke = egui::Stroke { width: line_width, color: to_color(self.current_player) };
-                                ui.painter().circle_stroke(get_square_rect(row, col).center(), square_size / 2.0 * 0.9, stroke);
+                                    let square_rect = get_square_rect(row, col);
+                                    ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93 * 0.8, to_color(self.current_player));
+
+                                    for (flip_row, flip_col) in self.flip_cells.iter() {
+                                        
+                                        let square_rect = get_square_rect(flip_row, flip_col);
+                                        ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93 * 0.8, to_color(self.current_player));
+                                    }
+                                }
                             }
                         }
                     }
@@ -148,8 +172,16 @@ impl eframe::App for Game {
                     if ui.input(|i| i.pointer.any_down()) {
                     
                         if row < Board::SIZE && col < Board::SIZE && is_valid_move {
+
                             // Place the current player's piece
                             self.board.grid[row][col] = Cell::Taken(self.current_player);
+                            
+                            // flip cells
+                            for (flip_row, flip_col) in self.flip_cells.iter() {
+                                
+                                self.board.grid[flip_row][flip_col] = Cell::Taken(self.current_player);
+                            }
+                                    
                             // Switch players
                             self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
                         }
@@ -176,6 +208,9 @@ impl eframe::App for Game {
             
             // UI controls
             ui.checkbox(&mut self.white_ai_enabled, "Enable White AI");
+            
+            // UI controls
+            ui.checkbox(&mut self.help_enabled, "Enable Help");
 
             if ui.button("Restart Game").clicked() {
                 *self = Game::default();  // Reset the game
