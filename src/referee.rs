@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::board::Cell;
 use crate::board::Board;
 use crate::board::Player;

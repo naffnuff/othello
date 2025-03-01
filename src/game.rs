@@ -11,6 +11,7 @@ use crate::board::Player;
 use crate::board::Cell;
 use crate::board::Board;
 use crate::agent::Agent;
+use crate::common::MoveResult;
 use crate::referee::Outcome;
 use crate::referee::Referee;
 
@@ -21,25 +22,55 @@ enum Phase {
     Tie,
 }
 
-pub struct Game {
-    board: Board,
-    current_phase: Phase,
-    black_ai_enabled: bool,
-    white_ai_enabled: bool,
+pub struct GameOptions {
     show_effects_of_move: bool,
     show_valid_moves: bool,
-    awaiting_ai_move: bool,
-    ai_thread: Option<thread::JoinHandle<()>>,
-    move_request_sender: Option<mpsc::Sender<MoveRequest>>,
-    move_result_receiver: mpsc::Receiver<(usize, usize)>,
-    referee: Referee,
-    valid_moves: CellList,
-    flip_cells: CellList,
-    black_ai_type: usize,
-    white_ai_type: usize,
     auto_restart: bool,
     pace_ai: bool,
     pause_at_win: bool,
+}
+
+impl Default for GameOptions {
+    fn default() -> Self {
+        GameOptions {
+            show_effects_of_move: false,
+            show_valid_moves: false,
+            auto_restart: false,
+            pace_ai: true,
+            pause_at_win: true,
+        }
+    }
+}
+
+pub struct PlayerOptions {
+    ai_enabled: bool,
+    ai_type: usize,
+    ai_recursion_depth: usize,
+}
+
+impl Default for PlayerOptions {
+    fn default() -> Self {
+        PlayerOptions {
+            ai_enabled: false,
+            ai_type: 0,
+            ai_recursion_depth: 1,
+        }
+    }
+}
+
+pub struct Game {
+    board: Board,
+    current_phase: Phase,
+    options: GameOptions,
+    black_options: PlayerOptions,
+    white_options: PlayerOptions,
+    ai_thread: Option<thread::JoinHandle<()>>,
+    awaiting_ai_move: bool,
+    move_request_sender: Option<mpsc::Sender<MoveRequest>>,
+    move_result_receiver: mpsc::Receiver<MoveResult>,
+    referee: Referee,
+    valid_moves: CellList,
+    flip_cells: CellList,
     scheduled_restart: Instant,
 }
 
@@ -47,7 +78,7 @@ impl Default for Game {
     fn default() -> Self {
 
         let (move_request_sender, move_request_receiver) = mpsc::channel::<MoveRequest>();
-        let (move_result_sender, move_result_receiver) = mpsc::channel::<(usize, usize)>();
+        let (move_result_sender, move_result_receiver) = mpsc::channel::<MoveResult>();
         
         let ai_thread = thread::spawn(move || {
             
@@ -58,22 +89,16 @@ impl Default for Game {
         let mut game = Game {
             board: Board::default(),
             current_phase: Phase::Turn(Player::Black),
-            black_ai_enabled: false,
-            white_ai_enabled: false,
-            show_effects_of_move: false,
-            show_valid_moves: false,
-            awaiting_ai_move: false,
+            options: GameOptions::default(),
+            black_options: PlayerOptions::default(),
+            white_options: PlayerOptions::default(),
             ai_thread: Some(ai_thread),
+            awaiting_ai_move: false,
             move_request_sender: Some(move_request_sender),
             move_result_receiver: move_result_receiver,
             referee: Referee::default(),
             valid_moves: CellList::default(),
             flip_cells: CellList::default(),
-            black_ai_type: 0,
-            white_ai_type: 0,
-            auto_restart: false,
-            pace_ai: true,
-            pause_at_win: true,
             scheduled_restart: Instant::now(),
         };
 
@@ -141,7 +166,7 @@ impl Game {
 
                 // only used if auto_restart is enabled
                 self.scheduled_restart = Instant::now();
-                if self.pause_at_win {
+                if self.options.pause_at_win {
                     self.scheduled_restart += Duration::from_secs(1);
                 }
             }
@@ -195,7 +220,7 @@ impl eframe::App for Game {
                 }
             }
 
-            match (self.current_phase, self.black_ai_enabled, self.white_ai_enabled) {
+            match (self.current_phase, self.black_options.ai_enabled, self.white_options.ai_enabled) {
 
                 (Phase::Turn(player @ Player::Black), true, _) | (Phase::Turn(player @ Player::White), _, true) => {
                     
@@ -204,18 +229,24 @@ impl eframe::App for Game {
                     // either poll for ai response, non-blocking...
                     if self.awaiting_ai_move {
 
-                        if let Some((row, col)) = self.move_result_receiver.try_recv().ok() {
+                        if let Some(move_result) = self.move_result_receiver.try_recv().ok() {
 
+                            let (row, col) = move_result.next_move;
                             if row < Board::SIZE && col < Board::SIZE {
 
-                                assert!(self.make_move((row, col), player));
+                                assert!(move_result.player == player);
+
+                                if move_result.board.grid == self.board.grid && move_result.player == player {
+                                    
+                                    assert!(self.make_move(move_result.next_move, player));
+                                }
 
                             } else {
 
                                 // unable to come up with a valid move, it seems
                                 match player {
-                                    Player::Black => self.black_ai_enabled = false,
-                                    Player::White => self.white_ai_enabled = false,
+                                    Player::Black => self.black_options.ai_enabled = false,
+                                    Player::White => self.white_options.ai_enabled = false,
                                 }
                             }
                             self.awaiting_ai_move = false;
@@ -226,7 +257,7 @@ impl eframe::App for Game {
                         if let Some(tx) = &self.move_request_sender {
 
                             self.awaiting_ai_move = true;
-                            let _ = tx.send(MoveRequest { board: self.board.clone(), current_player: player, pace_ai: self.pace_ai });
+                            let _ = tx.send(MoveRequest { board: self.board.clone(), player: player, pace_ai: self.options.pace_ai });
                         }
                     }
                 }
@@ -235,7 +266,7 @@ impl eframe::App for Game {
                     // Awaiting human move
 
                     // show a dot for every valid move for the current player
-                    if self.show_valid_moves {
+                    if self.options.show_valid_moves {
 
                         for (flip_row, flip_col) in self.valid_moves.iter() {
                             
@@ -264,7 +295,7 @@ impl eframe::App for Game {
                             if is_valid_move {
 
                                 // show how the hovered move would change the board
-                                if self.show_effects_of_move {
+                                if self.options.show_effects_of_move {
                             
                                     let square_rect = get_square_rect(row, col);
                                     ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93, to_color(player));
@@ -290,7 +321,7 @@ impl eframe::App for Game {
                 }
                 (Phase::Win(_) | Phase::Tie, _, _) => {
                     
-                    if self.auto_restart && Instant::now() >= self.scheduled_restart {
+                    if self.options.auto_restart && Instant::now() >= self.scheduled_restart {
 
                         self.reset();
                     }
@@ -302,9 +333,11 @@ impl eframe::App for Game {
         });
 
         egui::SidePanel::right("right_panel").show(ctx, move |ui| {
+            
+            ui.separator();
 
             // Current-status message
-            let message = match (self.current_phase, self.awaiting_ai_move, self.black_ai_enabled, self.white_ai_enabled) {
+            let message = match (self.current_phase, self.awaiting_ai_move, self.black_options.ai_enabled, self.white_options.ai_enabled) {
                 (Phase::Turn(Player::Black), true, true, _) => "Black is thinking...",
                 (Phase::Turn(Player::White), true, _, true) => "White is thinking...",
                 (Phase::Turn(Player::Black), _, _, _) => "Black's turn",
@@ -313,35 +346,74 @@ impl eframe::App for Game {
                 (Phase::Win(Player::White), _, _, _) => "White won",
                 (Phase::Tie, _, _, _) => "Tie",
             };
-            ui.label(message);
-            
-            // White AI type checkbox
-            ui.checkbox(&mut self.black_ai_enabled, "Enable Black AI");
-            let options = ["Random", "Minimax"];
-            for (i, option) in options.iter().enumerate() {
-                if ui.radio(self.black_ai_type == i, *option).clicked() {
-                    self.black_ai_type = i;
-                }
-            }
-            
-            // White AI type checkbox
-            ui.checkbox(&mut self.white_ai_enabled, "Enable White AI");
-            let options = ["Random", "Minimax"];
-            for (i, option) in options.iter().enumerate() {
-                if ui.radio(self.white_ai_type == i, *option).clicked() {
-                    self.white_ai_type = i;
-                }
-            }
 
-            // Buttons and checkboxes
+            ui.label(message);
+
+            ui.separator();
+            
+            // closure that handles the dynamic depth options
+            let check_ai_type = |ui: &mut egui::Ui, ai_type: usize| -> usize {
+
+                let mut depth_options = Vec::new();
+                depth_options.push("Random".to_string());
+                depth_options.push("Minimax".to_string());
+            
+                let mut result = ai_type;
+            
+                // Display dynamic depth options in a loop
+                for (i, option) in depth_options.iter().enumerate() {
+                    if ui.radio(ai_type == i, option).clicked() {
+                        result = i;
+                    }
+                }
+            
+                result
+            };
+            
+            // Define the maximum depth for the minimax algorithm
+            let max_depth = 5;
+            
+            ui.label("Black Player Options");
+            ui.checkbox(&mut self.black_options.ai_enabled, "Enable AI");
+            ui.label("AI Type");
+            self.black_options.ai_type = check_ai_type(ui, self.black_options.ai_type);
+            // a slider for the minimax algorithm recursion depth
+            ui.label("AI Recursion Depth");
+            ui.add(egui::Slider::new(&mut self.black_options.ai_recursion_depth, 1..=max_depth).text(""));
+
+            ui.separator();
+            
+            ui.label("White Player Options");
+            ui.checkbox(&mut self.white_options.ai_enabled, "Enable AI");
+            ui.label("AI Type");
+            self.white_options.ai_type = check_ai_type(ui, self.white_options.ai_type);
+            // a slider for the minimax algorithm recursion depth
+            ui.label("AI Recursion Depth");
+            ui.add(egui::Slider::new(&mut self.white_options.ai_recursion_depth, 1..=max_depth).text(""));
+
+            ui.separator();
+            
+            ui.label("Control");
+            // Continue with other checkboxes and buttons
             if ui.button("Restart Game").clicked() {
                 self.reset();
             }
-            ui.checkbox(&mut self.auto_restart, "Auto Restart");
-            ui.checkbox(&mut self.show_valid_moves, "Show Valid Moves");
-            ui.checkbox(&mut self.show_effects_of_move, "Show Effects of Move");
-            ui.checkbox(&mut self.pace_ai, "Pace AI");
-            ui.checkbox(&mut self.pause_at_win, "Pause at Win");
+            ui.checkbox(&mut self.options.auto_restart, "Auto Restart");
+
+            ui.separator();
+
+            ui.label("Flow");
+            ui.checkbox(&mut self.options.pace_ai, "Pace AI");
+            ui.checkbox(&mut self.options.pause_at_win, "Pause at Win");
+            
+            ui.separator();
+
+            ui.label("Help");
+            ui.checkbox(&mut self.options.show_valid_moves, "Show Valid Moves");
+            ui.checkbox(&mut self.options.show_effects_of_move, "Show Effects of Move");
+
+            ui.separator();
+
         });
     }
 }

@@ -3,6 +3,7 @@ use rand::Rng;
 
 use crate::common::CellList;
 use crate::common::MoveRequest;
+use crate::common::MoveResult;
 use crate::board::Player;
 use crate::board::Board;
 use crate::referee::Referee;
@@ -10,14 +11,14 @@ use crate::referee::Referee;
 pub struct Agent {
     rng: rand::prelude::ThreadRng,
     move_request_receiver: mpsc::Receiver<MoveRequest>,
-    move_result_sender: mpsc::Sender<(usize, usize)>,
+    move_result_sender: mpsc::Sender<MoveResult>,
     valid_moves: CellList,
     referee: Referee,
 }
 
 impl Agent {
 
-    pub fn new(move_request_receiver: mpsc::Receiver<MoveRequest>, move_result_sender: mpsc::Sender<(usize, usize)>) -> Self {
+    pub fn new(move_request_receiver: mpsc::Receiver<MoveRequest>, move_result_sender: mpsc::Sender<MoveResult>) -> Self {
 
         Agent {
             rng: rand::rng(),
@@ -35,8 +36,8 @@ impl Agent {
             if move_request.pace_ai {
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
-            let next_move = self.find_next_move(&move_request.board, move_request.current_player);
-            self.move_result_sender.send(next_move).unwrap();
+            let next_move = self.find_next_move(&move_request.board, move_request.player);
+            self.move_result_sender.send(MoveResult { board: move_request.board, player: move_request.player, next_move }).unwrap();
         }
     }
 

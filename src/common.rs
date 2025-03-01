@@ -35,6 +35,13 @@ impl CellList {
 pub struct MoveRequest {
 
     pub board: Board,
-    pub current_player: Player,
+    pub player: Player,
     pub pace_ai: bool,
+}
+
+pub struct MoveResult {
+
+    pub board: Board,
+    pub player: Player,
+    pub next_move: (usize, usize),
 }
