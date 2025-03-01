@@ -36,4 +36,5 @@ pub struct MoveRequest {
 
     pub board: Board,
     pub current_player: Player,
+    pub pace_ai: bool,
 }
