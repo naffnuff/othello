@@ -17,13 +17,15 @@ use crate::referee::Referee;
 
 #[derive(Clone, Copy)]
 enum Phase {
+
     Turn(Player),
     Win(Player),
     Tie,
 }
 
 pub struct GameOptions {
-    show_effects_of_move: bool,
+
+    show_effects_of_moves: bool,
     show_valid_moves: bool,
     auto_restart: bool,
     pace_ai: bool,
@@ -31,9 +33,12 @@ pub struct GameOptions {
 }
 
 impl Default for GameOptions {
+
     fn default() -> Self {
+
         GameOptions {
-            show_effects_of_move: false,
+
+            show_effects_of_moves: false,
             show_valid_moves: false,
             auto_restart: false,
             pace_ai: true,
@@ -42,15 +47,20 @@ impl Default for GameOptions {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct PlayerOptions {
+
     ai_enabled: bool,
     ai_type: usize,
     ai_recursion_depth: usize,
 }
 
 impl Default for PlayerOptions {
+
     fn default() -> Self {
+
         PlayerOptions {
+
             ai_enabled: false,
             ai_type: 0,
             ai_recursion_depth: 1,
@@ -59,11 +69,11 @@ impl Default for PlayerOptions {
 }
 
 pub struct Game {
+
     board: Board,
     current_phase: Phase,
     options: GameOptions,
-    black_options: PlayerOptions,
-    white_options: PlayerOptions,
+    player_options: [PlayerOptions; 2],
     ai_thread: Option<thread::JoinHandle<()>>,
     awaiting_ai_move: bool,
     move_request_sender: Option<mpsc::Sender<MoveRequest>>,
@@ -75,6 +85,7 @@ pub struct Game {
 }
 
 impl Default for Game {
+
     fn default() -> Self {
 
         let (move_request_sender, move_request_receiver) = mpsc::channel::<MoveRequest>();
@@ -87,11 +98,11 @@ impl Default for Game {
         });
 
         let mut game = Game {
+
             board: Board::default(),
             current_phase: Phase::Turn(Player::Black),
             options: GameOptions::default(),
-            black_options: PlayerOptions::default(),
-            white_options: PlayerOptions::default(),
+            player_options: [PlayerOptions::default(); 2],
             ai_thread: Some(ai_thread),
             awaiting_ai_move: false,
             move_request_sender: Some(move_request_sender),
@@ -109,6 +120,7 @@ impl Default for Game {
 }
 
 impl Drop for Game {
+
     fn drop(&mut self) {
 
         println!("Game is being dropped. Cleaning up AI thread...");
@@ -118,6 +130,7 @@ impl Drop for Game {
 
         // Wait for AI thread to exit
         if let Some(ai_thread) = self.ai_thread.take() {
+
             let _ = ai_thread.join();
             println!("...and joined AI thread");
         }
@@ -126,6 +139,7 @@ impl Drop for Game {
 
 impl Game {
     fn reset(&mut self) {
+
         self.board = Board::default();
         self.current_phase = Phase::Turn(Player::Black);
         self.referee.find_all_valid_moves(&self.board, Player::Black, &mut self.valid_moves);
@@ -147,6 +161,7 @@ impl Game {
             }
 
             let other_player = match player {
+
                 Player::Black => Player::White,
                 Player::White => Player::Black
             };
@@ -160,6 +175,7 @@ impl Game {
 
                 // no player has any valid moves, game ends
                 self.current_phase = match Referee::check_outcome(&self.board) {
+
                     Outcome::Won(player) => Phase::Win(player),
                     Outcome::Tie => Phase::Tie,
                 };
@@ -167,6 +183,7 @@ impl Game {
                 // only used if auto_restart is enabled
                 self.scheduled_restart = Instant::now();
                 if self.options.pause_at_win {
+
                     self.scheduled_restart += Duration::from_secs(1);
                 }
             }
@@ -181,6 +198,7 @@ impl Game {
 }
 
 impl eframe::App for Game {
+    
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -215,12 +233,13 @@ impl eframe::App for Game {
                     ui.painter().rect_stroke(square_rect, 0.0, stroke, egui::StrokeKind::Inside);
 
                     if let Cell::Taken(cell_state) = self.board.grid[row][col] {
+
                         ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93, to_color(cell_state));
                     }
                 }
             }
 
-            match (self.current_phase, self.black_options.ai_enabled, self.white_options.ai_enabled) {
+            match (self.current_phase, self.player_options[Player::Black as usize].ai_enabled, self.player_options[Player::White as usize].ai_enabled) {
 
                 (Phase::Turn(player @ Player::Black), true, _) | (Phase::Turn(player @ Player::White), _, true) => {
                     
@@ -234,8 +253,6 @@ impl eframe::App for Game {
                             let (row, col) = move_result.next_move;
                             if row < Board::SIZE && col < Board::SIZE {
 
-                                assert!(move_result.player == player);
-
                                 if move_result.board.grid == self.board.grid && move_result.player == player {
                                     
                                     assert!(self.make_move(move_result.next_move, player));
@@ -244,10 +261,7 @@ impl eframe::App for Game {
                             } else {
 
                                 // unable to come up with a valid move, it seems
-                                match player {
-                                    Player::Black => self.black_options.ai_enabled = false,
-                                    Player::White => self.white_options.ai_enabled = false,
-                                }
+                                self.player_options[player as usize].ai_enabled = false;
                             }
                             self.awaiting_ai_move = false;
                         }
@@ -257,7 +271,12 @@ impl eframe::App for Game {
                         if let Some(tx) = &self.move_request_sender {
 
                             self.awaiting_ai_move = true;
-                            let _ = tx.send(MoveRequest { board: self.board.clone(), player: player, pace_ai: self.options.pace_ai });
+                            let _ = tx.send(MoveRequest {
+                                board: self.board.clone(),
+                                player: player,
+                                pace_ai: self.options.pace_ai,
+                                ai_type: self.player_options[player as usize].ai_type
+                            });
                         }
                     }
                 }
@@ -295,7 +314,7 @@ impl eframe::App for Game {
                             if is_valid_move {
 
                                 // show how the hovered move would change the board
-                                if self.options.show_effects_of_move {
+                                if self.options.show_effects_of_moves {
                             
                                     let square_rect = get_square_rect(row, col);
                                     ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93, to_color(player));
@@ -337,65 +356,85 @@ impl eframe::App for Game {
             ui.separator();
 
             // Current-status message
-            let message = match (self.current_phase, self.awaiting_ai_move, self.black_options.ai_enabled, self.white_options.ai_enabled) {
-                (Phase::Turn(Player::Black), true, true, _) => "Black is thinking...",
-                (Phase::Turn(Player::White), true, _, true) => "White is thinking...",
-                (Phase::Turn(Player::Black), _, _, _) => "Black's turn",
-                (Phase::Turn(Player::White), _, _, _) => "White's turn",
-                (Phase::Win(Player::Black), _, _, _) => "Black won",
-                (Phase::Win(Player::White), _, _, _) => "White won",
-                (Phase::Tie, _, _, _) => "Tie",
+            let message = match self.current_phase {
+
+                Phase::Turn(player) => {
+                    
+                    let player_name = match player {
+                        Player::Black => "Black",
+                        Player::White => "White",
+                    };
+                    if self.awaiting_ai_move && self.player_options[player as usize].ai_enabled {
+
+                        format!("{:?} is thinking...", player)
+
+                    } else {
+
+                        format!("{:?}'s turn", player)
+                    }
+                }
+                Phase::Win(player) => {
+                    
+                    format!("{:?} won", player)
+                }
+                Phase::Tie => {
+
+                    "Tie".to_string()
+                },
             };
 
             ui.label(message);
 
             ui.separator();
             
-            // closure that handles the dynamic depth options
-            let check_ai_type = |ui: &mut egui::Ui, ai_type: usize| -> usize {
+            let mut create_player_options = |ui: &mut egui::Ui, player: Player| {
+            
+                // closure that handles the dynamic depth options
+                let check_ai_type = |ui: &mut egui::Ui, ai_type: usize| -> usize {
 
-                let mut depth_options = Vec::new();
-                depth_options.push("Random".to_string());
-                depth_options.push("Minimax".to_string());
-            
-                let mut result = ai_type;
-            
-                // Display dynamic depth options in a loop
-                for (i, option) in depth_options.iter().enumerate() {
-                    if ui.radio(ai_type == i, option).clicked() {
-                        result = i;
+                    let mut depth_options = Vec::new();
+                    depth_options.push("Random".to_string());
+                    depth_options.push("Minimax".to_string());
+                
+                    let mut result = ai_type;
+                
+                    // Display dynamic depth options in a loop
+                    for (i, option) in depth_options.iter().enumerate() {
+
+                        if ui.radio(ai_type == i, option).clicked() {
+
+                            result = i;
+                        }
                     }
-                }
-            
-                result
+                
+                    result
+                };
+                
+                // Define the maximum depth for the minimax algorithm
+                let max_depth = 5;
+                
+                ui.label(format!("{:?} Player Options", player));
+                ui.checkbox(&mut self.player_options[player as usize].ai_enabled, "Enable AI");
+                ui.label("AI Type");
+                self.player_options[player as usize].ai_type = check_ai_type(ui, self.player_options[player as usize].ai_type);
+                // a slider for the minimax algorithm recursion depth
+                ui.label("AI Recursion Depth");
+                ui.add(egui::Slider::new(&mut self.player_options[player as usize].ai_recursion_depth, 1..=max_depth).text(""));
+
             };
-            
-            // Define the maximum depth for the minimax algorithm
-            let max_depth = 5;
-            
-            ui.label("Black Player Options");
-            ui.checkbox(&mut self.black_options.ai_enabled, "Enable AI");
-            ui.label("AI Type");
-            self.black_options.ai_type = check_ai_type(ui, self.black_options.ai_type);
-            // a slider for the minimax algorithm recursion depth
-            ui.label("AI Recursion Depth");
-            ui.add(egui::Slider::new(&mut self.black_options.ai_recursion_depth, 1..=max_depth).text(""));
+
+            create_player_options(ui, Player::Black);
 
             ui.separator();
             
-            ui.label("White Player Options");
-            ui.checkbox(&mut self.white_options.ai_enabled, "Enable AI");
-            ui.label("AI Type");
-            self.white_options.ai_type = check_ai_type(ui, self.white_options.ai_type);
-            // a slider for the minimax algorithm recursion depth
-            ui.label("AI Recursion Depth");
-            ui.add(egui::Slider::new(&mut self.white_options.ai_recursion_depth, 1..=max_depth).text(""));
+            create_player_options(ui, Player::White);
 
             ui.separator();
             
             ui.label("Control");
             // Continue with other checkboxes and buttons
             if ui.button("Restart Game").clicked() {
+
                 self.reset();
             }
             ui.checkbox(&mut self.options.auto_restart, "Auto Restart");
@@ -410,7 +449,7 @@ impl eframe::App for Game {
 
             ui.label("Help");
             ui.checkbox(&mut self.options.show_valid_moves, "Show Valid Moves");
-            ui.checkbox(&mut self.options.show_effects_of_move, "Show Effects of Move");
+            ui.checkbox(&mut self.options.show_effects_of_moves, "Show Effects of Moves");
 
             ui.separator();
 
