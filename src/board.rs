@@ -17,6 +17,10 @@ pub struct Board {
 
 impl Board {
     pub const SIZE: usize = 8;
+
+    pub fn cell(&self, (row, col): (usize, usize)) -> Cell {
+        self.grid[row][col]
+    }
 }
 
 impl Default for Board {

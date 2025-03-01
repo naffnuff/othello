@@ -3,6 +3,16 @@ use crate::board::Board;
 use crate::board::Player;
 use crate::common::CellList;
 
+pub enum Outcome {
+    Won(Player),
+    Tie,
+}
+
+pub enum MatchState {
+    Resolved(Outcome),
+    Ongoing,
+}
+
 // not thread-safe, every thread needs its own Referee
 pub struct Referee {
 
@@ -29,29 +39,74 @@ impl Referee {
     // public
     pub fn validate_move(&mut self, board: &Board, player: Player, maybe_move: (usize, usize)) -> bool {
 
-        if Self::find_adjacent_opposites(board, player, maybe_move, &mut self.adjacent_opposites) {
-
-            Self::find_flip_cells(board, player, maybe_move, &self.adjacent_opposites, &mut self.flip_cells)
-
-        } else {
-
-            false
-        }
+        Self::find_flip_cells_for_move_internal(board, player, maybe_move, &mut self.adjacent_opposites, &mut self.flip_cells)
     }
 
     pub fn find_flip_cells_for_move(&mut self, board: &Board, player: Player, maybe_move: (usize, usize), result: &mut CellList) -> bool {
         
-        if Self::find_adjacent_opposites(board, player, maybe_move, &mut self.adjacent_opposites) {
+        Self::find_flip_cells_for_move_internal(board, player, maybe_move, &mut self.adjacent_opposites, result)
+    }
 
-            Self::find_flip_cells(board, player, maybe_move, &self.adjacent_opposites, result)
+    pub fn find_all_valid_moves(&mut self, board: &Board, player: Player, result: &mut CellList) -> bool {
+        
+        result.count = 0;
 
+        for row in 0..Board::SIZE {
+            for col in 0..Board::SIZE {
+                if self.validate_move(board, player, (row, col)) {
+                    result.push_back((row, col));
+                }
+            }
+        }
+
+        result.count != 0
+    }
+
+    pub fn check_match_state(board: &Board) -> MatchState {
+
+        let mut black_count = 0;
+        let mut white_count = 0;
+
+        for row in 0..Board::SIZE {
+            for col in 0..Board::SIZE {
+                match board.grid[row][col] {
+                    Cell::Empty => return MatchState::Ongoing,
+                    Cell::Taken(Player::Black) => black_count += 1,
+                    Cell::Taken(Player::White) => white_count += 1,
+                }
+            }
+        }
+
+        assert!(black_count + white_count == 64);
+
+        if black_count > white_count {
+            MatchState::Resolved(Outcome::Won(Player::Black))
+        } else if white_count > black_count {
+            MatchState::Resolved(Outcome::Won(Player::White))
         } else {
-
-            false
+            MatchState::Resolved(Outcome::Tie)
         }
     }
 
     // internal
+    fn find_flip_cells_for_move_internal(board: &Board, player: Player, maybe_move: (usize, usize), adjacent_opposites: &mut CellList, flip_cells: &mut CellList) -> bool {
+        
+        match board.cell(maybe_move) {
+            Cell::Empty => {
+
+                if Self::find_adjacent_opposites(board, player, maybe_move, adjacent_opposites) {
+
+                    Self::find_flip_cells(board, player, maybe_move, adjacent_opposites, flip_cells)
+        
+                } else {
+        
+                    false
+                }
+            },
+            Cell::Taken(_) => false
+        }
+    }
+
     fn find_adjacent_opposites(board: &Board, player: Player, (row, col): (usize, usize), result: &mut CellList) -> bool {
 
         let start_row = match row {
@@ -102,6 +157,8 @@ impl Referee {
         result.count != 0
     }
 
+    // go to the next cell in the checked direction
+    // the ray is successful if a cell belonging to the player is found
     fn cast_ray(board: &Board, player: Player, (row, col): (usize, usize), (row_direction, col_direction): (i32, i32), result: &mut CellList) -> bool {
         
         match board.grid[row][col] {

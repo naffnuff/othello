@@ -9,11 +9,20 @@ use crate::board::Player;
 use crate::board::Cell;
 use crate::board::Board;
 use crate::agent::Agent;
+use crate::referee::MatchState;
+use crate::referee::Outcome;
 use crate::referee::Referee;
+
+#[derive(Clone, Copy)]
+enum Phase {
+    Turn(Player),
+    Win(Player),
+    Tie,
+}
 
 pub struct Game {
     board: Board,
-    current_player: Player,
+    current_phase: Phase,
     black_ai_enabled: bool,
     white_ai_enabled: bool,
     help_enabled: bool,
@@ -39,7 +48,7 @@ impl Default for Game {
 
         Game {
             board: Board::default(),
-            current_player: Player::Black,
+            current_phase: Phase::Turn(Player::Black),
             black_ai_enabled: false,
             white_ai_enabled: false,
             help_enabled: false,
@@ -103,37 +112,54 @@ impl eframe::App for Game {
                 }
             }
 
+            match Referee::check_match_state(&self.board) {
+                MatchState::Resolved(Outcome::Won(player)) => self.current_phase = Phase::Win(player),
+                MatchState::Resolved(Outcome::Tie) => self.current_phase = Phase::Tie,
+                MatchState::Ongoing => {},
+            };
 
-            match (self.current_player, self.black_ai_enabled, self.white_ai_enabled) {
-                (Player::Black, true, _) | (Player::White, _, true) => {
+            match (self.current_phase, self.black_ai_enabled, self.white_ai_enabled) {
+
+                (Phase::Turn(player @ Player::Black), true, _) | (Phase::Turn(player @ Player::White), _, true) => {
+                    
                     // AI move
                     if self.awaiting_ai_move {
+
                         if let Some((row, col)) = self.move_result_receiver.try_recv().ok() {
+
                             println!("UI: Received AI move: {row}, {col}");
-                            // Place the current player's piece
-                            self.board.grid[row][col] = Cell::Taken(self.current_player);
-                            
-                            // Validate and collect flip cells for ai move
-                            if self.referee.find_flip_cells_for_move(&self.board, self.current_player, (row, col), &mut self.flip_cells) {
+
+                            if row < Board::SIZE && col < Board::SIZE {
                                 
-                                // flip cells
-                                for (flip_row, flip_col) in self.flip_cells.iter() {
+                                // Validate and collect flip cells for ai move
+                                if self.referee.find_flip_cells_for_move(&self.board, player, (row, col), &mut self.flip_cells) {
                                     
-                                    self.board.grid[flip_row][flip_col] = Cell::Taken(self.current_player);
+                                    // Place the current player's piece
+                                    self.board.grid[row][col] = Cell::Taken(player);
+                                    
+                                    // flip cells
+                                    for (flip_row, flip_col) in self.flip_cells.iter() {
+                                        
+                                        self.board.grid[flip_row][flip_col] = Cell::Taken(player);
+                                    }
                                 }
-                                // Switch players
-                                self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
+                                    
                             }
+                            // Switch players
+                            self.current_phase = Phase::Turn(if player == Player::Black { Player::White } else { Player::Black });
                             self.awaiting_ai_move = false;
                         }
                     } else {
+
                         if let Some(tx) = &self.move_request_sender {
+
                             self.awaiting_ai_move = true;
-                            let _ = tx.send(MoveRequest { board: self.board.clone(), current_player: self.current_player });
+                            let _ = tx.send(MoveRequest { board: self.board.clone(), current_player: player });
                         }
                     }
                 }
-                _ => {
+                (Phase::Turn(player), _, _) => {
+
                     // Awaiting human move
 
                     // Mouse handling
@@ -149,19 +175,19 @@ impl eframe::App for Game {
                     
                         if row < Board::SIZE && col < Board::SIZE {
 
-                            is_valid_move = self.referee.find_flip_cells_for_move(&self.board, self.current_player, (row, col), &mut self.flip_cells);
+                            is_valid_move = self.referee.find_flip_cells_for_move(&self.board, player, (row, col), &mut self.flip_cells);
 
                             if is_valid_move {
 
                                 if self.help_enabled {
                             
                                     let square_rect = get_square_rect(row, col);
-                                    ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93 * 0.8, to_color(self.current_player));
+                                    ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93, to_color(player));
 
                                     for (flip_row, flip_col) in self.flip_cells.iter() {
                                         
                                         let square_rect = get_square_rect(flip_row, flip_col);
-                                        ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93 * 0.8, to_color(self.current_player));
+                                        ui.painter().circle_filled(square_rect.center(), square_size / 2.0 * 0.93 * 0.5, to_color(player));
                                     }
                                 }
                             }
@@ -174,19 +200,21 @@ impl eframe::App for Game {
                         if row < Board::SIZE && col < Board::SIZE && is_valid_move {
 
                             // Place the current player's piece
-                            self.board.grid[row][col] = Cell::Taken(self.current_player);
+                            self.board.grid[row][col] = Cell::Taken(player);
                             
                             // flip cells
                             for (flip_row, flip_col) in self.flip_cells.iter() {
                                 
-                                self.board.grid[flip_row][flip_col] = Cell::Taken(self.current_player);
+                                self.board.grid[flip_row][flip_col] = Cell::Taken(player);
                             }
                                     
                             // Switch players
-                            self.current_player = if self.current_player == Player::Black { Player::White } else { Player::Black };
+                            self.current_phase = Phase::Turn(if player == Player::Black { Player::White } else { Player::Black });
                         }
                     }
                 }
+                (Phase::Win(_), _, _) => {}
+                (Phase::Tie, _, _) => {}
             }
 
             ctx.request_repaint();
@@ -195,11 +223,14 @@ impl eframe::App for Game {
 
         egui::SidePanel::right("right_panel").show(ctx, move |ui| {
 
-            let message = match (self.current_player, self.awaiting_ai_move, self.black_ai_enabled, self.white_ai_enabled) {
-                (Player::Black, true, true, _) => "Black is thinking...",
-                (Player::White, true, _, true) => "White is thinking...",
-                (Player::Black, _, _, _) => "Black's turn",
-                (Player::White, _, _, _) => "White's turn"
+            let message = match (self.current_phase, self.awaiting_ai_move, self.black_ai_enabled, self.white_ai_enabled) {
+                (Phase::Turn(Player::Black), true, true, _) => "Black is thinking...",
+                (Phase::Turn(Player::White), true, _, true) => "White is thinking...",
+                (Phase::Turn(Player::Black), _, _, _) => "Black's turn",
+                (Phase::Turn(Player::White), _, _, _) => "White's turn",
+                (Phase::Win(Player::Black), _, _, _) => "Black won",
+                (Phase::Win(Player::White), _, _, _) => "White won",
+                (Phase::Tie, _, _, _) => "Tie",
             };
             ui.label(message);  // Display the message
             
