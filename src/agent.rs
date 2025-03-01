@@ -32,15 +32,10 @@ impl Agent {
     pub fn run(&mut self) {
 
         while let Ok(move_request) = self.move_request_receiver.recv() {
-            println!("AI thread: Received new request...");
-            //std::thread::sleep(std::time::Duration::from_secs(1));
-            //println!("AI thread: 1 sec passed...");
+            std::thread::sleep(std::time::Duration::from_secs(1));
             let next_move = self.find_next_move(&move_request.board, move_request.current_player);
-            println!("AI thread: Done processing request");
             self.move_result_sender.send(next_move).unwrap();
-            println!("AI thread: Message sent");
         }
-        println!("AI thread: exiting...");
     }
 
     pub fn find_next_move(&mut self, board: &Board, player: Player) -> (usize, usize) {

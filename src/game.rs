@@ -32,6 +32,9 @@ pub struct Game {
     move_result_receiver: mpsc::Receiver<(usize, usize)>,
     referee: Referee,
     flip_cells: CellList,
+    black_ai_type: usize,
+    white_ai_type: usize,
+    auto_restart: bool,
 }
 
 impl Default for Game {
@@ -58,6 +61,9 @@ impl Default for Game {
             move_result_receiver: move_result_receiver,
             referee: Referee::default(),
             flip_cells: CellList::default(),
+            black_ai_type: 0,
+            white_ai_type: 0,
+            auto_restart: false,
         }
     }
 }
@@ -73,6 +79,13 @@ impl Drop for Game {
         if let Some(ai_thread) = self.ai_thread.take() {
             let _ = ai_thread.join();
         }
+    }
+}
+
+impl Game {
+    fn reset(&mut self) {
+        self.board = Board::default();
+        self.current_phase = Phase::Turn(Player::Black);
     }
 }
 
@@ -127,8 +140,6 @@ impl eframe::App for Game {
 
                         if let Some((row, col)) = self.move_result_receiver.try_recv().ok() {
 
-                            println!("UI: Received AI move: {row}, {col}");
-
                             if row < Board::SIZE && col < Board::SIZE {
                                 
                                 // Validate and collect flip cells for ai move
@@ -144,7 +155,10 @@ impl eframe::App for Game {
                                     }
                                 }
                                     
+                            } else {
+
                             }
+                            
                             // Switch players
                             self.current_phase = Phase::Turn(if player == Player::Black { Player::White } else { Player::Black });
                             self.awaiting_ai_move = false;
@@ -213,8 +227,12 @@ impl eframe::App for Game {
                         }
                     }
                 }
-                (Phase::Win(_), _, _) => {}
-                (Phase::Tie, _, _) => {}
+                (Phase::Win(_) | Phase::Tie, _, _) => {
+                    
+                    if self.auto_restart {
+                        self.reset();
+                    }
+                }
             }
 
             ctx.request_repaint();
@@ -232,20 +250,47 @@ impl eframe::App for Game {
                 (Phase::Win(Player::White), _, _, _) => "White won",
                 (Phase::Tie, _, _, _) => "Tie",
             };
-            ui.label(message);  // Display the message
+            ui.label(message);
             
             // UI controls
             ui.checkbox(&mut self.black_ai_enabled, "Enable Black AI");
+
+            // Define the options for the radio buttons
+            let options = ["Random", "Minimax"];
+            
+            for (i, option) in options.iter().enumerate() {
+                if ui.radio(self.black_ai_type == i, *option).clicked() {
+                    self.black_ai_type = i;
+                }
+            }
+            
+            ui.label(format!("Selected: {}", options[self.black_ai_type]));
             
             // UI controls
             ui.checkbox(&mut self.white_ai_enabled, "Enable White AI");
+
+            // Define the options for the radio buttons
+            let options = ["Random", "Minimax"];
+            
+            // Loop over the options and create a radio button for each
+            for (i, option) in options.iter().enumerate() {
+                if ui.radio(self.white_ai_type == i, *option).clicked() {
+                    self.white_ai_type = i;
+                }
+            }
+            
+            // Optionally, show the currently selected option
+            ui.label(format!("Selected: {}", options[self.white_ai_type]));
+
+            if ui.button("Restart Game").clicked() {
+                self.reset();
+            }
+            
+            // UI controls
+            ui.checkbox(&mut self.auto_restart, "Auto Restart");
             
             // UI controls
             ui.checkbox(&mut self.help_enabled, "Enable Help");
-
-            if ui.button("Restart Game").clicked() {
-                *self = Game::default();  // Reset the game
-            }
         });
     }
 }
