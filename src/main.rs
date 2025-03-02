@@ -3,6 +3,7 @@ mod game;
 mod agent;
 mod common;
 mod referee;
+mod statistics;
 
 use eframe::egui;
 use game::Game;

@@ -8,6 +8,8 @@ pub enum Outcome {
     Tie,
 }
 
+type Move = (usize, usize);
+
 // not thread-safe, every thread needs its own Referee
 pub struct Referee {
 
@@ -32,12 +34,12 @@ impl Default for Referee {
 impl Referee {
     
     // public
-    pub fn validate_move(&mut self, board: &Board, player: Player, maybe_move: (usize, usize)) -> bool {
+    pub fn validate_move(&mut self, board: &Board, player: Player, maybe_move: Move) -> bool {
 
         Self::find_flip_cells_for_move_internal(board, player, maybe_move, &mut self.adjacent_opposites, &mut self.flip_cells)
     }
 
-    pub fn find_flip_cells_for_move(&mut self, board: &Board, player: Player, maybe_move: (usize, usize), result: &mut CellList) -> bool {
+    pub fn find_flip_cells_for_move(&mut self, board: &Board, player: Player, maybe_move: Move, result: &mut CellList) -> bool {
         
         Self::find_flip_cells_for_move_internal(board, player, maybe_move, &mut self.adjacent_opposites, result)
     }
@@ -95,8 +97,37 @@ impl Referee {
         }
     }
 
+    pub fn find_and_apply_next_valid_move(&mut self, board: &mut Board, player: Player, (start_row, start_col): Move) -> Move {
+
+        let mut col = start_col;
+        for row in start_row..Board::SIZE {
+            while col < Board::SIZE {
+                if Self::find_flip_cells_for_move_internal(board, player, (row, col), &mut self.adjacent_opposites, &mut self.flip_cells) {
+                    Self::apply_move(board, player, (row, col), &self.flip_cells);
+                    return (row, col);
+                }
+            }
+            col = 0;
+        }
+
+        (Board::SIZE, Board::SIZE)
+    }
+
+    pub fn apply_move(board: &mut Board, player: Player, (row, col): Move, flip_cells: &CellList) {
+
+        // Place the current player's piece
+        board.grid[row][col] = Cell::Taken(player);
+        
+        // flip cells
+        for (flip_row, flip_col) in flip_cells.iter() {
+            
+            board.grid[flip_row][flip_col] = Cell::Taken(player);
+        }
+    }
+
     // internal
-    fn find_flip_cells_for_move_internal(board: &Board, player: Player, maybe_move: (usize, usize), adjacent_opposites: &mut CellList, flip_cells: &mut CellList) -> bool {
+
+    fn find_flip_cells_for_move_internal(board: &Board, player: Player, maybe_move: Move, adjacent_opposites: &mut CellList, flip_cells: &mut CellList) -> bool {
         
         match board.cell(maybe_move) {
 
@@ -115,7 +146,7 @@ impl Referee {
         }
     }
 
-    fn find_adjacent_opposites(board: &Board, player: Player, (row, col): (usize, usize), result: &mut CellList) -> bool {
+    fn find_adjacent_opposites(board: &Board, player: Player, (row, col): Move, result: &mut CellList) -> bool {
 
         let start_row = match row {
             0 => 0,
@@ -156,7 +187,7 @@ impl Referee {
     }
 
     // expects result to already be filled with adjacent opposites
-    fn find_flip_cells(board: &Board, player: Player, (row, col): (usize, usize), adjacent_opposites: & CellList, result: &mut CellList) -> bool {
+    fn find_flip_cells(board: &Board, player: Player, (row, col): Move, adjacent_opposites: & CellList, result: &mut CellList) -> bool {
 
         result.count = 0;
 
@@ -176,7 +207,7 @@ impl Referee {
     // this problem lends itself to a recursive approach, but recursion can be inefficient,
     // so at some point we might want to try an iterative approach and see if that helps performance,
     // especially when there are a lot of calls to this function from the solver
-    fn cast_ray_recursive(board: &Board, player: Player, (row, col): (usize, usize), (row_direction, col_direction): (i32, i32), result: &mut CellList) -> bool {
+    fn cast_ray_recursive(board: &Board, player: Player, (row, col): Move, (row_direction, col_direction): (i32, i32), result: &mut CellList) -> bool {
         
         match board.grid[row][col] {
 

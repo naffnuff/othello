@@ -1,12 +1,12 @@
-use crate::agent::AgentType;
 use crate::board::Board;
-use crate::board::Player;
+
+type Move = (usize, usize);
 
 // Common utility types
 // a cache for re-use to avoid unnecesary memory allocations
 pub struct CellList {
 
-    pub list: [(usize, usize); 64],
+    pub list: [Move; 64],
     pub count: usize,
 }
 
@@ -20,30 +20,14 @@ impl Default for CellList {
 
 impl CellList {
 
-    pub fn push_back(&mut self, cell: (usize, usize)) {
+    pub fn push_back(&mut self, cell: Move) {
 
         self.list[self.count] = cell;
         self.count += 1;
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (usize, usize)> {
+    pub fn iter(&self) -> impl Iterator<Item = Move> {
 
         self.list[..self.count].iter().copied()
     }
-}
-
-// Message-passing types
-pub struct MoveRequest {
-
-    pub board: Board,
-    pub player: Player,
-    pub pace_ai: bool,
-    pub ai_type: AgentType,
-}
-
-pub struct MoveResult {
-
-    pub board: Board,
-    pub player: Player,
-    pub next_move: (usize, usize),
 }

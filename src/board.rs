@@ -4,6 +4,18 @@ pub enum Player {
     White
 }
 
+impl Player {
+
+    pub fn opponent(&self) -> Self {
+
+        match self {
+
+            Player::Black => Player::White,
+            Player::White => Player::Black
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Cell {
     Empty,
@@ -15,10 +27,12 @@ pub struct Board {
     pub grid: [[Cell; Board::SIZE]; Board::SIZE],
 }
 
+type Move = (usize, usize);
+
 impl Board {
     pub const SIZE: usize = 8;
 
-    pub fn cell(&self, (row, col): (usize, usize)) -> Cell {
+    pub fn cell(&self, (row, col): Move) -> Cell {
         self.grid[row][col]
     }
 }

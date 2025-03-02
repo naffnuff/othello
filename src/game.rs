@@ -6,16 +6,19 @@ use std::convert::TryFrom;
 
 use eframe::egui;
 
-use crate::agent::AgentType;
 use crate::common::CellList;
-use crate::common::MoveRequest;
 use crate::board::Player;
 use crate::board::Cell;
 use crate::board::Board;
 use crate::agent::Agent;
-use crate::common::MoveResult;
+use crate::agent::MoveResult;
+use crate::agent::AiType;
+use crate::agent::MoveRequest;
 use crate::referee::Outcome;
 use crate::referee::Referee;
+use crate::statistics::Statistics;
+
+type Move = (usize, usize);
 
 #[derive(Clone, Copy)]
 enum Phase {
@@ -55,7 +58,7 @@ impl Default for GameOptions {
 pub struct PlayerOptions {
 
     ai_enabled: bool,
-    ai_type: AgentType,
+    ai_type: AiType,
     ai_recursion_depth: usize,
 }
 
@@ -66,7 +69,7 @@ impl Default for PlayerOptions {
         PlayerOptions {
 
             ai_enabled: false,
-            ai_type: AgentType::Random,
+            ai_type: AiType::Random,
             ai_recursion_depth: 1,
         }
     }
@@ -88,6 +91,7 @@ pub struct Game {
     scheduled_restart: Instant,
     is_board_untouched: bool,
     can_take_statistics: bool,
+    statistics: Statistics,
 }
 
 impl Default for Game {
@@ -119,6 +123,7 @@ impl Default for Game {
             scheduled_restart: Instant::now(),
             is_board_untouched: false,
             can_take_statistics: false,
+            statistics: Statistics::default(),
         };
 
         game.reset();
@@ -198,47 +203,40 @@ impl Game {
                 let _ = tx.send(MoveRequest {
                     board: self.board.clone(),
                     player: player,
-                    pace_ai: self.options.pace_ai,
-                    ai_type: self.player_options[player as usize].ai_type
+                    pace_response: self.options.pace_ai,
+                    algorithm_choice: self.player_options[player as usize].ai_type,
+                    recursion_depth: self.player_options[player as usize].ai_recursion_depth,
                 });
             }
         }        
     }
 
     // call this from the UI thread
-    fn make_move(&mut self, (row, col): (usize, usize), player: Player) -> bool {
+    fn make_move(&mut self, next_move: Move, player: Player) -> bool {
 
         // Validate and collect flip cells for ai move
-        if self.referee.find_flip_cells_for_move(&self.board, player, (row, col), &mut self.flip_cells) {
+        if self.referee.find_flip_cells_for_move(&self.board, player, next_move, &mut self.flip_cells) {
             
-            // Place the current player's piece
-            self.board.grid[row][col] = Cell::Taken(player);
-            
-            // flip cells
-            for (flip_row, flip_col) in self.flip_cells.iter() {
-                
-                self.board.grid[flip_row][flip_col] = Cell::Taken(player);
-            }
+            Referee::apply_move(&mut self.board, player, next_move, &self.flip_cells);
 
-            let other_player = match player {
+            let opponent = player.opponent();
 
-                Player::Black => Player::White,
-                Player::White => Player::Black
-            };
-
-            if self.referee.find_all_valid_moves(&self.board, other_player, &mut self.valid_moves) {
+            if self.referee.find_all_valid_moves(&self.board, opponent, &mut self.valid_moves) {
 
                 // switch players if the other player has valid moves
-                self.current_phase = Phase::Turn(other_player);
+                self.current_phase = Phase::Turn(opponent);
 
             } else if !self.referee.find_all_valid_moves(&self.board, player, &mut self.valid_moves) {
 
                 // no player has any valid moves, game ends
-                self.current_phase = match Referee::check_outcome(&self.board) {
+                let outcome = Referee::check_outcome(&self.board);
+                self.current_phase = match outcome {
 
                     Outcome::Won(player) => Phase::Win(player),
                     Outcome::Tie => Phase::Tie,
                 };
+                
+                self.take_statistics(outcome);
 
                 // only used if auto_restart is enabled
                 self.scheduled_restart = Instant::now();
@@ -262,6 +260,29 @@ impl Game {
         }
     }
 
+    fn take_statistics(&mut self, outcome: Outcome) {
+        
+        if self.can_take_statistics {
+
+            let black_player_name = format!("Black {}", if self.player_options[Player::Black as usize].ai_enabled {
+                "AI"
+            } else {
+                "Human"
+            });
+            let white_player_name = format!("White {}", if self.player_options[Player::Black as usize].ai_enabled {
+                "AI"
+            } else {
+                "Human"
+            });
+            
+            self.statistics.add_datum(format!("{black_player_name} vs {white_player_name}"), Player::Black, &outcome);
+            self.statistics.add_datum(format!("{white_player_name} vs {black_player_name}"), Player::White, &outcome);
+            
+            self.can_take_statistics = false;
+        }
+
+    }
+
     fn update_player_options_controls(&mut self, ui: &mut egui::Ui, player: Player) {
         
         // Define the maximum depth for the minimax algorithm
@@ -278,7 +299,7 @@ impl Game {
         ui.label("AI Recursion Depth");
         if ui.add(egui::Slider::new(&mut self.player_options[player as usize].ai_recursion_depth, 1..=max_depth).text("")).changed() {
 
-            if self.player_options[player as usize].ai_enabled && self.player_options[player as usize].ai_type == AgentType::Minimax {
+            if self.player_options[player as usize].ai_enabled && self.player_options[player as usize].ai_type == AiType::Minimax {
                 self.ai_setting_changed();
             }
         }
@@ -286,7 +307,7 @@ impl Game {
     }  
 
     // closure that handles the dynamic depth options
-    fn update_ai_type_radio_buttons(&mut self, ui: &mut egui::Ui, ai_type: AgentType, player: Player) -> AgentType {
+    fn update_ai_type_radio_buttons(&mut self, ui: &mut egui::Ui, ai_type: AiType, player: Player) -> AiType {
 
         let mut options = Vec::new();
         options.push("Random".to_string());
@@ -299,7 +320,7 @@ impl Game {
 
             if ui.radio(ai_type as usize == i, option).clicked() {
 
-                result = match AgentType::try_from(i) {
+                result = match AiType::try_from(i) {
                     Ok(agent_type) => agent_type,
                     Err(e) => {
                         panic!("AI type conversion failed: {e}")
@@ -508,6 +529,12 @@ impl eframe::App for Game {
             ui.label(format!("Statistics {modus} be taken"));
 
             ui.separator();
+
+            ui.label("Won%, Tied%, Lost%, (Total)");
+            for (name, statistic) in self.statistics.data.iter() {
+
+                ui.label(format!("{name}:\n{statistic}"));
+            }
 
         });
     }
