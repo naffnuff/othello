@@ -1,5 +1,6 @@
 use std::sync::mpsc;
 use rand::Rng;
+use num_enum::TryFromPrimitive;
 
 use crate::common::CellList;
 use crate::common::MoveRequest;
@@ -7,6 +8,13 @@ use crate::common::MoveResult;
 use crate::board::Player;
 use crate::board::Board;
 use crate::referee::Referee;
+
+#[derive(Debug, Clone, Copy, PartialEq, TryFromPrimitive)]
+#[repr(usize)]
+pub enum AgentType {
+    Random,
+    Minimax,
+}
 
 pub struct Agent {
     rng: rand::prelude::ThreadRng,
@@ -32,6 +40,8 @@ impl Agent {
     pub fn run(&mut self) {
 
         while let Ok(move_request) = self.move_request_receiver.recv() {
+
+            println!("Received move request, ai type: {:?}", move_request.ai_type);
 
             if move_request.pace_ai {
                 std::thread::sleep(std::time::Duration::from_secs(1));

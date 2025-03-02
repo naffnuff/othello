@@ -2059,6 +2059,7 @@ name = "othello"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "num_enum",
  "rand 0.9.0",
 ]
 
