@@ -71,6 +71,8 @@ impl Agent {
             }
             
             self.move_result_sender.send(MoveResult { board: move_request.board, player: move_request.player, next_move }).unwrap();
+            
+            println!("Responded with move {:?}", next_move);
         }
     }
 

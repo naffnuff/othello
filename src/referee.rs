@@ -106,6 +106,7 @@ impl Referee {
                     Self::apply_move(board, player, (row, col), &self.flip_cells);
                     return (row, col);
                 }
+                col += 1;
             }
             col = 0;
         }

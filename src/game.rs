@@ -265,14 +265,20 @@ impl Game {
         if self.can_take_statistics {
 
             let black_player_name = format!("Black {}", if self.player_options[Player::Black as usize].ai_enabled {
-                "AI"
+                match self.player_options[Player::Black as usize].ai_type {
+                    AiType::Random => format!("Random"),
+                    AiType::Minimax => format!("Minimax, depth {}", self.player_options[Player::Black as usize].ai_recursion_depth)
+                }
             } else {
-                "Human"
+                format!("Human")
             });
             let white_player_name = format!("White {}", if self.player_options[Player::Black as usize].ai_enabled {
-                "AI"
+                match self.player_options[Player::Black as usize].ai_type {
+                    AiType::Random => format!("Random"),
+                    AiType::Minimax => format!("Minimax, depth {}", self.player_options[Player::Black as usize].ai_recursion_depth)
+                }
             } else {
-                "Human"
+                format!("Human")
             });
             
             self.statistics.add_datum(format!("{black_player_name} vs {white_player_name}"), Player::Black, &outcome);
@@ -530,7 +536,7 @@ impl eframe::App for Game {
 
             ui.separator();
 
-            ui.label("Won%, Tied%, Lost%, (Total)");
+            ui.label("Won%, Tied%, Lost%, (Total):");
             for (name, statistic) in self.statistics.data.iter() {
 
                 ui.label(format!("{name}:\n{statistic}"));
