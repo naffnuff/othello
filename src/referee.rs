@@ -47,8 +47,6 @@ impl Referee {
     pub fn find_all_valid_moves(&mut self, board: &Board, player: Player, result: &mut CellList) -> bool {
         
         result.count = 0;
-        
-        //let start = Instant::now();
 
         for row in 0..Board::SIZE {
             for col in 0..Board::SIZE {
@@ -59,14 +57,12 @@ impl Referee {
                 }
             }
         }
-        
-        //let duration = start.elapsed();
-        //println!("Execution time: {:?}", duration);
 
         result.count != 0
     }
 
-    pub fn check_outcome(board: &Board) -> Outcome {
+    // returns (player disk count, opponent disk count)
+    pub fn count_disks(board: &Board, player: Player) -> (i32, i32) {
 
         let mut black_count = 0;
         let mut white_count = 0;
@@ -82,6 +78,16 @@ impl Referee {
                 }
             }
         }
+
+        match player {
+            Player::Black => (black_count, white_count),
+            Player::White => (white_count, black_count),
+        }
+    }
+
+    pub fn check_outcome(board: &Board) -> Outcome {
+
+        let (black_count, white_count) = Self::count_disks(board, Player::Black);
 
         if black_count > white_count {
 
@@ -99,15 +105,20 @@ impl Referee {
 
     pub fn find_and_apply_next_valid_move(&mut self, board: &mut Board, player: Player, (start_row, start_col): Move) -> Move {
 
+        let mut row = start_row;
         let mut col = start_col;
-        for row in start_row..Board::SIZE {
+        while row < Board::SIZE {
             while col < Board::SIZE {
+
                 if Self::find_flip_cells_for_move_internal(board, player, (row, col), &mut self.adjacent_opposites, &mut self.flip_cells) {
+
                     Self::apply_move(board, player, (row, col), &self.flip_cells);
                     return (row, col);
+
                 }
                 col += 1;
             }
+            row += 1;
             col = 0;
         }
 

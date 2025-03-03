@@ -247,6 +247,7 @@ impl Game {
             }
             
             if self.is_board_untouched {
+                
                 // you can mess with the settings before the first move and still take statistics
                 self.can_take_statistics = true;
                 self.is_board_untouched = false;
@@ -264,25 +265,23 @@ impl Game {
         
         if self.can_take_statistics {
 
-            let black_player_name = format!("Black {}", if self.player_options[Player::Black as usize].ai_enabled {
-                match self.player_options[Player::Black as usize].ai_type {
-                    AiType::Random => format!("Random"),
-                    AiType::Minimax => format!("Minimax, depth {}", self.player_options[Player::Black as usize].ai_recursion_depth)
-                }
-            } else {
-                format!("Human")
-            });
-            let white_player_name = format!("White {}", if self.player_options[Player::Black as usize].ai_enabled {
-                match self.player_options[Player::Black as usize].ai_type {
-                    AiType::Random => format!("Random"),
-                    AiType::Minimax => format!("Minimax, depth {}", self.player_options[Player::Black as usize].ai_recursion_depth)
-                }
-            } else {
-                format!("Human")
-            });
+            let mut names: [String; 2] = [String::new(), String::new()];
+            for i in 0..2 {
+
+                let player_name = format!("{}", if self.player_options[i].ai_enabled {
+                    match self.player_options[i].ai_type {
+                        AiType::Random => format!("Random"),
+                        AiType::Minimax => format!("Minimax, depth {}", self.player_options[i].ai_recursion_depth)
+                    }
+                } else {
+                    format!("Human")
+                });
+
+                names[i] = player_name;
+            }
             
-            self.statistics.add_datum(format!("{black_player_name} vs {white_player_name}"), Player::Black, &outcome);
-            self.statistics.add_datum(format!("{white_player_name} vs {black_player_name}"), Player::White, &outcome);
+            // TODO, sort so that player color doesn't matter
+            self.statistics.add_datum(format!("{} vs {}", names[0], names[1]), Player::Black, &outcome);
             
             self.can_take_statistics = false;
         }
@@ -292,7 +291,7 @@ impl Game {
     fn update_player_options_controls(&mut self, ui: &mut egui::Ui, player: Player) {
         
         // Define the maximum depth for the minimax algorithm
-        let max_depth = 5;
+        let max_depth = 10;
         
         ui.label(format!("{:?} Player Options", player));
         if ui.checkbox(&mut self.player_options[player as usize].ai_enabled, "Enable AI").changed() {
