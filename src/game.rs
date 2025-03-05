@@ -271,7 +271,7 @@ impl Game {
                 let player_name = format!("{}", if self.player_options[i].ai_enabled {
                     match self.player_options[i].ai_type {
                         AiType::Random => format!("Random"),
-                        AiType::Minimax => format!("Minimax, depth {}", self.player_options[i].ai_recursion_depth)
+                        AiType::Minimax => format!("Minimax lvl {}", self.player_options[i].ai_recursion_depth)
                     }
                 } else {
                     format!("Human")
@@ -279,9 +279,20 @@ impl Game {
 
                 names[i] = player_name;
             }
+
+            // sort so that another player color doesn't render another entry
+            let first_player =
+                if names[0] < names[1] {
+                
+                    Player::Black
+
+                } else {
+
+                    Player::White
+
+                };
             
-            // TODO, sort so that player color doesn't matter
-            self.statistics.add_datum(format!("{} vs {}", names[0], names[1]), Player::Black, &outcome);
+            self.statistics.add_datum(format!("{} vs {}", names[first_player as usize], names[(first_player as usize + 1) % 2]), first_player, &outcome);
             
             self.can_take_statistics = false;
         }
