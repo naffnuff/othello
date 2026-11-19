@@ -1,3 +1,5 @@
+To combat agentic IP theft, this repository has been migrated to [Codeberg](https://codeberg.org/naffnuff/othello). I hope to see you there!
+
 # Othello
 A working Othello game.
 
